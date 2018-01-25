@@ -11,58 +11,26 @@
 
 /*** ROS libraries ***/
 #include "ros/ros.h"
-#include "rosjack/JackAudio.h"
-#include "std_msgs/Float32.h"
+#include "rosjack/Audio.h"
 /*** End ROS libraries ***/
 
-jack_port_t **input_port;
+jack_port_t *input_port;
 jack_client_t *client;
 
 ros::Publisher rosjack_out;
 
-int number_of_microphones;
-bool verbose;
-int max_mic_past = -1;
-
 int jack_callback (jack_nframes_t nframes, void *arg){
-	int i,j;
-	int max_mic_i = -1;
-	double max_mic_energy = 0;
-	double this_mic_energy = 0;
+	jack_default_audio_sample_t *in = (jack_default_audio_sample_t *)jack_port_get_buffer (input_port, nframes);
 	
-	jack_default_audio_sample_t **in = (jack_default_audio_sample_t **)malloc(sizeof(jack_default_audio_sample_t *)*number_of_microphones);
-	for (i = 0; i < number_of_microphones; i++){
-		in[i] = (jack_default_audio_sample_t *)jack_port_get_buffer (input_port[i], nframes);
-		
-		this_mic_energy = 0;
-		for(j = 0;j < nframes; j++)
-			this_mic_energy += abs((double)(in[i][j]*100));
-		
-		//printf("%d %f      ",i,this_mic_energy);fflush(stdout);
-		if (this_mic_energy > max_mic_energy || max_mic_past == -1){
-			max_mic_energy = this_mic_energy;
-			max_mic_i = i;
-			
-			if(max_mic_past == -1)
-				max_mic_past = max_mic_i;
-		}
+	rosjack::Audio msg;
+	msg.size = nframes;
+	msg.channels = 1;
+	
+	msg.data.resize(nframes);
+	for (int i = 0; i < nframes; i++){
+		msg.data[i] = in[i];
 	}
-	
-	if (max_mic_i == -1)
-		max_mic_i = max_mic_past;
-	
-	//printf(" active %d\n",max_mic_i);fflush(stdout);
-	rosjack::JackAudio out;
-	out.size = nframes;
-	for (j = 0; j < nframes; j++){
-		out.data.push_back(in[max_mic_i][j]);
-	}
-	rosjack_out.publish(out);
-	
-	if(verbose && max_mic_past != max_mic_i)
-		printf("Microphone %d now active.\n",max_mic_i+1);
-	
-	max_mic_past = max_mic_i;
+	rosjack_out.publish(msg);
 	return 0;
 }
 
@@ -73,31 +41,16 @@ void jack_shutdown (void *arg){
 int main (int argc, char *argv[]) {
 	/* ROS initialization*/
 	
-	const char *client_name = "rosjack_read";
+	const char *client_name = "talkerjack";
 	
-	printf ("Creating ROSJack_Read node...\n");
+	printf ("Creating ROSJack_Read node...");
 	ros::init(argc, argv, client_name);
 	ros::NodeHandle n;
-	rosjack_out = n.advertise<rosjack::JackAudio>("jackaudio", 1000);
-
-	// Obtaining parameters from ROS parameter server
-	if (n.getParam("/rosjack_read/number_of_microphones",number_of_microphones)){
-		ROS_INFO("Number of microphones: %d",number_of_microphones);
-	}else{
-		number_of_microphones = 1;
-		ROS_WARN("Number of microphones argument not found in ROS param server, using default value (%d).",number_of_microphones);
-	}
-	
-	if (n.getParam("/rosjack_read/verbose",verbose)){
-		ROS_INFO("Verbose: %d",verbose);
-	}else{
-		verbose = false;
-		ROS_WARN("Verbosity argument not found in ROS param server, using default value (%d).",verbose);
-	}
+	rosjack_out = n.advertise<rosjack::Audio>("jackaudio", 1000);
+	printf (" done.\n");
 
 
 	/* JACK initialization*/
-	int i;
 	printf ("Connecting to Jack Server...\n");
 	jack_options_t options = JackNoStartServer;
 	jack_status_t status;
@@ -132,20 +85,14 @@ int main (int argc, char *argv[]) {
 	printf ("Engine sample rate: %d\n", jack_get_sample_rate (client));
 	
 	
-	/* create the agent input ports */
-	input_port = (jack_port_t **)malloc(sizeof(jack_port_t *)*number_of_microphones);
-	char input_port_name[100];
-	for(i = 0; i < number_of_microphones; i++){
-		sprintf(input_port_name,"input_%d",i);
-		input_port[i] = jack_port_register (client, input_port_name, JACK_DEFAULT_AUDIO_TYPE,JackPortIsInput, 0);
-
-		/* check that the port were created succesfully */
-		if ((input_port[i] == NULL)) {
-			printf("Could not create agent ports. Have we reached the maximum amount of JACK agent ports?\n");
-			exit (1);
-		}
+	/* create the agent input port */
+	input_port = jack_port_register (client, "input", JACK_DEFAULT_AUDIO_TYPE,JackPortIsInput, 0);
+	
+	/* check that both ports were created succesfully */
+	if ((input_port == NULL)) {
+		printf("Could not create agent ports. Have we reached the maximum amount of JACK agent ports?\n");
+		exit (1);
 	}
-
 	
 	
 	/* Tell the JACK server that we are ready to roll.
@@ -175,11 +122,9 @@ int main (int argc, char *argv[]) {
 		exit (1);
 	}
 	// Connect the first available to our input port
-	for(i = 0; i < number_of_microphones; i++){
-		if (jack_connect (client, serverports_names[i], jack_port_name (input_port[i]))) {
-			printf("Cannot connect input port %s.\n",jack_port_name (input_port[i]));
-			exit (1);
-		}
+	if (jack_connect (client, serverports_names[0], jack_port_name (input_port))) {
+		printf("Cannot connect input port.\n");
+		exit (1);
 	}
 	// free serverports_names variable for reuse in next part of the code
 	free (serverports_names);
@@ -187,8 +132,6 @@ int main (int argc, char *argv[]) {
 	
 	
 	printf ("done.\n");
-	if(verbose)
-		printf("Microphone 1 now active.\n");
 	/* keep running until stopped by the user */
 	ros::spin();
 	

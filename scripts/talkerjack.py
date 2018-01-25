@@ -11,12 +11,12 @@ import jack
 import threading
 import numpy as np
 
-from rosjack.msg import JackAudio
+from rosjack.msg import Audio
 
-node_name = 'rosjack_read'
+node_name = 'talkerjack'
 
 # config ROS stuff
-pub = rospy.Publisher('jackaudio', JackAudio, queue_size=0)
+pub = rospy.Publisher('jackaudio', Audio, queue_size=0)
 rospy.init_node(node_name, anonymous=True)
 print('ROS Node started')
 
@@ -56,6 +56,7 @@ def jackprocess(frames):
     msg = JackAudio()
     msg.data = client.inports[0].get_array()
     msg.size = size
+    msg.channels = 1
     
     #print client.inports[0].get_array()[0]
     

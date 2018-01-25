@@ -1,5 +1,0 @@
-<launch>
-  <node name="rosjack_read" pkg="rosjack" type="rosjack_read" output="screen">
-    <rosparam command="load" file="$(find rosjack)/rosjack_read_config.yaml" />
-  </node>
-</launch>

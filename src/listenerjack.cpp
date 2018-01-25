@@ -12,8 +12,7 @@
 
 /*** ROS libraries ***/
 #include "ros/ros.h"
-#include "rosjack/JackAudio.h"
-#include "std_msgs/Float32.h"
+#include "rosjack/Audio.h"
 /*** End ROS libraries ***/
 
 jack_port_t *output_port;
@@ -33,7 +32,7 @@ int jack_callback (jack_nframes_t nframes, void *arg){
 	for (int i = 0; i < nframes; i++){
 		out[i] = ros2jack_buffer[buffer_r];
 		buffer_r++;
-		if(buffer_r > buffer_size)
+		if(buffer_r >= buffer_size)
 			buffer_r = 0;
 	}
 	mtx.unlock();
@@ -44,14 +43,15 @@ void jack_shutdown (void *arg){
 	exit (1);
 }
 
-void jackaudioCallback(const rosjack::JackAudio::ConstPtr& msg){
+void jackaudioCallback(const rosjack::Audio::ConstPtr& msg){
 	int msg_size = msg->size;
 	
 	mtx.lock();
+    //outputting only one channel
 	for (int i = 0; i < msg_size; i++){
 		ros2jack_buffer[buffer_w] = msg->data[i];
 		buffer_w++;
-		if(buffer_w > buffer_size)
+		if(buffer_w >= buffer_size)
 			buffer_w = 0;
 	}
 	mtx.unlock();
@@ -60,7 +60,7 @@ void jackaudioCallback(const rosjack::JackAudio::ConstPtr& msg){
 int main (int argc, char *argv[]) {
 	/* ROS initialization*/
 	
-	const char *client_name = "rosjack_write";
+	const char *client_name = "listenerjack";
 	
 	printf ("Connecting to Jack Server...\n");
 	jack_options_t options = JackNoStartServer;
